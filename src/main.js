@@ -66,7 +66,41 @@ function updateDayNight(dt) {
   sun.color.copy(nightColors.sun).lerp(dayColors.sun, daylight);
   sun.intensity = 0.2 + daylight * 1.3;
   water.material.color.copy(nightColors.water).lerp(dayColors.water, daylight);
-  document.getElementById('time-of-day').textContent = isNight ? 'Ночь · редкая рыба ближе' : 'День';
+  const label = document.getElementById('time-of-day'), text = isNight ? 'Ночь · редкая рыба ближе' : 'День';
+  if (label.textContent !== text) label.textContent = text;
+}
+
+// Voxel bank, trees and reeds. One world step projects to one render-target pixel.
+box(4, 0.8, 14, '#854c30', -6.5, -0.35, 0);
+box(4, 0.16, 14, '#6daa2c', -6.5, 0.12, 0);
+for (const [x, z, height] of [[-6.5, -4.5, 2.6], [-7, -0.5, 3.2], [-6.5, 3.5, 2.8]]) {
+  box(0.5, height, 0.5, '#854c30', x, height / 2, z);
+  box(1.8, 1.3, 1.8, '#346524', x, height, z);
+  box(1.2, 0.8, 1.2, '#6daa2c', x, height + 0.85, z);
+}
+const reeds = [], reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+for (const [index, z] of [-5.5, -3, 1.7, 2.2, 3.8, 4.3, 5.8].entries()) {
+  const x = -4.4 + (index % 2) * 0.25, height = 0.7 + (index % 3) * 0.15;
+  box(0.1, height / 2, 0.1, '#346524', x, height / 4, z);
+  const top = new THREE.Group(); scene.add(top);
+  const stem = new THREE.Mesh(new THREE.BoxGeometry(0.1, height / 2, 0.1), mat('#6daa2c'));
+  stem.position.set(x, height * 0.75, z); top.add(stem);
+  const seed = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.16), mat('#854c30'));
+  seed.position.set(x, height + 0.08, z); top.add(seed);
+  reeds.push(top);
+}
+let sceneryTime = 0, lastSwayTick = -1;
+const pixelStep = new THREE.Vector3();
+function updateScenery(dt) {
+  sceneryTime += dt;
+  const tick = reducedMotion.matches ? -2 : Math.floor(sceneryTime * 8);
+  if (tick === lastSwayTick) return;
+  lastSwayTick = tick;
+  pixelStep.setFromMatrixColumn(cam.matrixWorld, 0).multiplyScalar(12 / H);
+  reeds.forEach((reed, index) => {
+    const pixels = reducedMotion.matches ? 0 : Math.round(Math.sin(tick * 0.55 + index));
+    reed.position.copy(pixelStep).multiplyScalar(pixels);
+  });
 }
 for (let i = 0; i < 5; i++) box(1.6, 0.2, 0.9, i % 2 ? '#a0703c' : '#8a5a2b', -4, 0.1, -4 + i);
 box(0.3, 1.2, 0.3, '#5a3a1b', -4.7, -0.3, -4); box(0.3, 1.2, 0.3, '#5a3a1b', -3.3, -0.3, 0);
@@ -174,6 +208,7 @@ const tip = new THREE.Vector3();
 function frame() {
   const elapsed = clock.getDelta(), dt = collection.open ? 0 : Math.min(elapsed, 0.1); t += dt;
   updateDayNight(elapsed);
+  updateScenery(dt);
   rod.getWorldPosition(tip); tip.z += 1.0; tip.y += 0.45;
   if (!collection.open) {
   if (state === 'cast') { const k = Math.min(t / 0.6, 1); bob.position.lerpVectors(tip, target, k); bob.position.y += Math.sin(k * Math.PI) * 1.5;
