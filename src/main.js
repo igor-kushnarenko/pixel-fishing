@@ -9,6 +9,7 @@ muteButton.disabled = !audio.supported;
 muteButton.addEventListener('click', () => {
   const muted = audio.toggleMute();
   muteButton.setAttribute('aria-pressed', String(muted));
+  muteButton.setAttribute('aria-label', muted ? 'Включить звук' : 'Выключить звук');
   muteButton.textContent = muted ? 'Звук: выкл.' : 'Звук: вкл.';
 });
 
@@ -20,10 +21,15 @@ const FISH_TYPES = [
   { name: 'Золотая рыбка', color: '#dad45e', size: 0.9, rarity: 3, points: 200, biteWindow: 0.4 }
 ];
 
+const DAY_LENGTH = 180;
+const NIGHT_WEIGHTS = [20, 24, 28, 18, 10];
+let dayTime = DAY_LENGTH / 4, isNight = false;
+
 function chooseFish() {
-  let roll = Math.random() * FISH_TYPES.reduce((sum, type) => sum + type.rarity, 0);
-  for (const type of FISH_TYPES) {
-    roll -= type.rarity;
+  const weights = isNight ? NIGHT_WEIGHTS : FISH_TYPES.map(type => type.rarity);
+  let roll = Math.random() * weights.reduce((sum, weight) => sum + weight, 0);
+  for (const [index, type] of FISH_TYPES.entries()) {
+    roll -= weights[index];
     if (roll < 0) return type;
   }
   return FISH_TYPES[FISH_TYPES.length - 1];
@@ -39,7 +45,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color('#ffffff');
 const cam = new THREE.OrthographicCamera(-8, 8, 6, -6, 0.1, 100);
 cam.position.set(10, 10, 10); cam.lookAt(0, 0, 0);
-scene.add(new THREE.HemisphereLight('#fff6d0', '#5a4a8a', 1.2));
+const hemisphere = new THREE.HemisphereLight('#fff6d0', '#5a4a8a', 1.2); scene.add(hemisphere);
 const sun = new THREE.DirectionalLight('#ffffff', 1.5); sun.position.set(-5, 10, 3); scene.add(sun);
 
 const mat = c => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
@@ -47,6 +53,20 @@ const box = (w, h, d, c, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeo
 
 // water + pier + character
 const water = box(14, 0.4, 14, '#3a7bd5', 0, -0.4, 0);
+const dayColors = { sky: new THREE.Color('#fff6d0'), ground: new THREE.Color('#5a4a8a'), sun: new THREE.Color('#ffffff'), water: new THREE.Color('#3a7bd5') };
+const nightColors = { sky: new THREE.Color('#597dce'), ground: new THREE.Color('#140c1c'), sun: new THREE.Color('#6dc2ca'), water: new THREE.Color('#202d62') };
+function updateDayNight(dt) {
+  dayTime = (dayTime + dt) % DAY_LENGTH;
+  const daylight = (Math.sin(dayTime / DAY_LENGTH * Math.PI * 2) + 1) / 2;
+  isNight = daylight < 0.35;
+  hemisphere.color.copy(nightColors.sky).lerp(dayColors.sky, daylight);
+  hemisphere.groundColor.copy(nightColors.ground).lerp(dayColors.ground, daylight);
+  hemisphere.intensity = 0.35 + daylight * 0.85;
+  sun.color.copy(nightColors.sun).lerp(dayColors.sun, daylight);
+  sun.intensity = 0.2 + daylight * 1.3;
+  water.material.color.copy(nightColors.water).lerp(dayColors.water, daylight);
+  document.getElementById('time-of-day').textContent = isNight ? 'Ночь · редкая рыба ближе' : 'День';
+}
 for (let i = 0; i < 5; i++) box(1.6, 0.2, 0.9, i % 2 ? '#a0703c' : '#8a5a2b', -4, 0.1, -4 + i);
 box(0.3, 1.2, 0.3, '#5a3a1b', -4.7, -0.3, -4); box(0.3, 1.2, 0.3, '#5a3a1b', -3.3, -0.3, 0);
 const hero = new THREE.Group(); scene.add(hero); hero.position.set(-4, 0.2, 0);
@@ -117,7 +137,8 @@ say('тапни, чтобы закинуть');
 const clock = new THREE.Clock();
 const tip = new THREE.Vector3();
 function frame() {
-  const dt = Math.min(clock.getDelta(), 0.1); t += dt;
+  const elapsed = clock.getDelta(), dt = Math.min(elapsed, 0.1); t += dt;
+  updateDayNight(elapsed);
   rod.getWorldPosition(tip); tip.z += 1.0; tip.y += 0.45;
   if (state === 'cast') { const k = Math.min(t / 0.6, 1); bob.position.lerpVectors(tip, target, k); bob.position.y += Math.sin(k * Math.PI) * 1.5;
     if (k >= 1) { audio.splash(); state = 'wait'; t = 0; biteAt = 1.5 + Math.random() * 4; } }
@@ -129,7 +150,6 @@ function frame() {
   biteMark.position.copy(bob.position); biteMark.position.y += 0.9;
   line.visible = bob.position.y > -50;
   lineGeo.setFromPoints([tip, bob.position]);
-  water.material.color.setHSL(0.6, 0.6, 0.5 + Math.sin(performance.now() / 800) * 0.03);
   renderer.setRenderTarget(rt); renderer.render(scene, cam);
   renderer.setRenderTarget(null); renderer.render(postScene, postCam);
   requestAnimationFrame(frame);
