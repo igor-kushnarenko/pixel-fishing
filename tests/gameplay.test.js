@@ -1,131 +1,77 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
-import * as THREE from 'three';
-import { loadProgress, saveProgress, SAVE_KEY } from '../src/progress.js';
+import { FishingGame } from '../src/game.js';
+import { FISH_TYPES, chooseFish, daylightAt } from '../src/fish.js';
+import { isCastable, randomCastPoint, FISHERMAN, BOATS } from '../src/harbor-map.js';
+import { loadProgress, saveProgress } from '../src/progress.js';
 
-// Run the real game loop and Three.js scene with only browser/GPU boundaries replaced.
-const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8').replace(/^import .*;$/gm, '');
-function game(saved = null) {
-  let now = 0, delta = 0, random = 0, nextFrame;
-  const data = new Map(saved ? [[SAVE_KEY, saved]] : []);
-  const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) };
-  class Element {
-    textContent = ''; children = []; style = {}; attributes = {}; handlers = {}; open = false;
-    addEventListener(type, handler) { (this.handlers[type] ??= []).push(handler); }
-    emit(type, event = {}) { for (const handler of this.handlers[type] ?? []) handler({ preventDefault() {}, ...event }); }
-    append(...children) { this.children.push(...children); }
-    appendChild(child) { this.append(child); }
-    replaceChildren(...children) { this.children = children; }
-    setAttribute(key, value) { this.attributes[key] = value; }
-    showModal() { this.open = true; }
-    close() { this.open = false; this.emit('close'); }
-  }
-  const elements = new Map(), motion = { matches: false };
-  const element = id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); };
-  const document = { getElementById: element, createElement: () => new Element(), body: new Element(), addEventListener() {} };
-  const sounds = [];
-  const audio = { supported: true, unlock() {}, toggleMute: () => true };
-  for (const sound of ['splash', 'bite', 'catch']) audio[sound] = () => sounds.push(sound);
-  class Renderer {
-    domElement = element('canvas');
-    setPixelRatio() {} setSize() {} setRenderTarget() {}
-    render(scene) { scene.updateMatrixWorld(); }
-  }
-  const math = Object.create(Math); math.random = () => random;
-  const context = vm.createContext({
-    THREE: { ...THREE, WebGLRenderer: Renderer, Clock: class { getDelta() { return delta; } } },
-    document, window: {}, innerWidth: 390, innerHeight: 844, addEventListener() {},
-    matchMedia: () => motion, Math: math, performance: { now: () => now },
-    requestAnimationFrame: callback => { nextFrame = callback; },
-    createAudio: () => audio,
-    loadProgress: types => loadProgress(types, storage), saveProgress: progress => saveProgress(progress, storage)
-  });
-  vm.runInContext(source, context);
-  return {
-    element, data, sounds, motion,
-    read: expression => vm.runInContext(expression, context),
-    roll(value) { random = value; },
-    tick(seconds = 0.05) { delta = seconds; now += seconds * 1000; nextFrame(); },
-    advance(seconds) { for (let remaining = seconds; remaining > 0.00001; remaining -= 0.05) this.tick(Math.min(0.05, remaining)); },
-    tap() { element('canvas').emit('pointerdown'); },
-    until(state) {
-      for (let i = 0; i < 160 && this.read('state') !== state; i++) this.tick();
-      assert.equal(this.read('state'), state);
-    }
-  };
+const target = { x: 785, y: 618 };
+function setup(roll = 0) {
+  const messages = [], sounds = [], saved = new Map();
+  const storage = { getItem: key => saved.get(key) ?? null, setItem: (key, value) => saved.set(key, value) };
+  const game = new FishingGame({ progress: loadProgress(FISH_TYPES, storage), random: () => roll,
+    onChange: message => messages.push(message), onSound: sound => sounds.push(sound), onCatch: progress => saveProgress(progress, storage) });
+  return { game, messages, sounds, storage };
 }
+function bite(game) { game.tap(target); game.update(0.6); game.update(game.biteAt); assert.equal(game.state, 'bite'); }
 
-test('early tap cancels; a bite awards points once and persists the actual fish', () => {
-  const g = game();
-  g.tap(); g.tap(); assert.equal(g.read('state'), 'idle');
-  assert.equal(g.read('progress.score'), 0);
-  g.tap(); g.until('bite');
-  assert.equal(g.read('biteMark.visible'), true);
-  g.tap(); g.tap();
-  assert.equal(g.read('progress.score'), 10);
-  assert.equal(g.read('fish.scale.x'), 0.8);
-  assert.equal(g.read('fish.material.color.getHexString()'), 'd2aa99');
-  const saved = JSON.parse(g.data.get(SAVE_KEY));
-  assert.equal(saved.caught.Карась, 1);
-  assert.deepEqual(saved.bestCatch, { name: 'Карась', points: 10 });
-  assert.deepEqual(g.sounds, ['splash', 'bite', 'catch']);
-  g.advance(1.3); assert.equal(g.read('state'), 'idle');
-  const reloaded = game(g.data.get(SAVE_KEY));
-  assert.match(reloaded.element('hud').textContent, /Очки: 10/);
-  reloaded.element('catch-log').emit('click');
-  assert.equal(reloaded.element('catch-list').children[0].children[1].textContent, 'Карась');
-  assert.equal(reloaded.element('catch-list').children[1].children[1].textContent, '???');
+test('early tap cancels and a valid catch awards points only once, with compatible persistence', () => {
+  const { game, sounds, storage } = setup();
+  game.tap(target); game.tap(target); assert.equal(game.state, 'idle');
+  bite(game); game.tap(); game.tap();
+  assert.equal(game.progress.score, 10); assert.equal(game.progress.caught.Карась, 1);
+  assert.deepEqual(game.progress.bestCatch, { name: 'Карась', points: 10 });
+  assert.deepEqual(sounds, ['splash', 'bite', 'catch']);
+  assert.deepEqual(loadProgress(FISH_TYPES, storage), game.progress);
+  game.update(1.3); assert.equal(game.state, 'idle');
 });
 
-test('every species has a progressively shorter deadline; late taps miss', () => {
+test('each of five species can be caught, and each deadline rejects a late hook', () => {
   for (const [index, roll] of [0, 0.5, 0.8, 0.92, 0.99].entries()) {
-    const g = game(); g.roll(roll); g.tap(); g.until('bite');
-    assert.equal(g.read('activeFish.name'), g.read(`FISH_TYPES[${index}].name`));
-    const window = g.read('activeFish.biteWindow');
-    assert.ok(window >= 0.4 && window <= 0.9);
-    g.advance(window + 0.01); g.tap();
-    assert.equal(g.read('progress.score'), 0);
-    assert.equal(g.read('biteMark.visible'), false);
+    const { game } = setup(roll); bite(game);
+    assert.equal(game.activeFish, FISH_TYPES[index]);
+    game.update(game.activeFish.biteWindow - 0.01); assert.equal(game.state, 'bite');
+    game.tap(); assert.equal(game.progress.score, FISH_TYPES[index].points);
+    const late = setup(roll).game; bite(late);
+    late.update(late.activeFish.biteWindow); assert.equal(late.state, 'idle');
+    late.tap(target); assert.equal(late.progress.score, 0);
   }
 });
 
-test('collection pauses both fishing time and the bite deadline', () => {
-  const g = game(); g.tap(); g.until('bite');
-  g.element('catch-log').emit('click'); g.advance(10);
-  assert.equal(g.read('state'), 'bite');
-  g.element('close-log').emit('click'); g.tap();
-  assert.equal(g.read('progress.score'), 10);
+test('collection and hidden-page pauses preserve the bite window and day clock', () => {
+  const { game } = setup(); bite(game); game.update(0.15);
+  const before = game.biteRemaining, time = game.dayTime;
+  game.paused = true; game.update(100);
+  game.tap(); assert.equal(game.state, 'bite'); assert.equal(game.progress.score, 0);
+  assert.equal(game.biteRemaining, before); assert.equal(game.dayTime, time);
+  game.paused = false; game.tap(); assert.equal(game.progress.score, 10);
 });
 
-test('night changes species weights and lighting; the full cycle is 180 seconds', () => {
-  const g = game(); g.roll(0.3);
-  assert.equal(g.read('chooseFish().name'), 'Карась');
-  const dayLight = g.read('sun.intensity');
-  g.tick(90); assert.equal(g.read('isNight'), true);
-  assert.equal(g.read('chooseFish().name'), 'Окунь');
-  assert.ok(g.read('sun.intensity') < dayLight);
-  assert.match(g.element('time-of-day').textContent, /Ночь/);
-  g.tick(90); assert.equal(g.read('isNight'), false);
-  assert.equal(g.read('sun.intensity'), dayLight);
+test('night changes rarity weights and the day/night cycle is exactly 180 seconds', () => {
+  const { game } = setup(); const initial = game.daylight;
+  assert.equal(chooseFish(false, () => 0.3).name, 'Карась');
+  game.update(90); assert.equal(game.isNight, true); assert.ok(game.daylight < initial);
+  assert.equal(chooseFish(true, () => 0.3).name, 'Окунь');
+  game.update(90); assert.equal(game.isNight, false); assert.equal(game.daylight, initial);
+  assert.equal(daylightAt(45), daylightAt(225));
 });
 
-test('reeds update at 8 fps, snap to pixels, and stop for reduced motion', () => {
-  const g = game();
-  const positions = () => g.read('JSON.stringify(reeds.map(reed => reed.position.toArray()))');
-  const before = positions(); g.tick(0.05); assert.equal(positions(), before);
-  g.advance(1); assert.notEqual(positions(), before);
-  assert.equal(g.read('reeds.every(reed => Math.abs(reed.position.length() / pixelStep.length() - Math.round(reed.position.length() / pixelStep.length())) < 1e-6)'), true);
-  g.motion.matches = true; g.tick();
-  assert.equal(g.read('reeds.every(reed => reed.position.length() === 0)'), true);
-  const frozen = positions(); g.advance(1); assert.equal(positions(), frozen);
+test('land, docks, hulls and invalid coordinates do not accept casts', () => {
+  const { game } = setup();
+  for (const point of [FISHERMAN, { x: 520, y: 120 }, { x: 1250, y: 240 }, { x: -2, y: 50 }, { x: NaN, y: 630 }, { x: 900, y: Infinity }]) {
+    assert.equal(isCastable(point), false); game.tap(point); assert.equal(game.state, 'idle');
+  }
+  for (const boat of BOATS) {
+    const height = boat.width * boat.crop[3] / boat.crop[2];
+    assert.equal(isCastable({ x: boat.x, y: boat.y + height * 0.32 }), false);
+  }
+  assert.equal(isCastable(target), true);
+  game.tap(target); assert.equal(game.state, 'cast');
 });
 
-test('portrait camera contains the hero and all cast corners', () => {
-  const g = game();
-  assert.equal(g.read(`[
-    new THREE.Vector3(-4, 1.55, 0),
-    ...[-2, 1].flatMap(x => [-1, 3].map(z => new THREE.Vector3(x, -0.15, z)))
-  ].every(point => { point.project(cam); return Math.abs(point.x) < 0.95 && Math.abs(point.y) < 0.95; })`), true);
+test('keyboard cast selection always finds safe water, including a pathological random source', () => {
+  for (const value of [0, 0.2, 0.5, 0.7, 0.99]) assert.equal(isCastable(randomCastPoint(() => value)), true);
+  let seed = 42;
+  const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  for (let i = 0; i < 1000; i++) assert.equal(isCastable(randomCastPoint(random)), true);
 });

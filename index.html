@@ -1,30 +1,37 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#deeed6">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" type="image/svg+xml" href="./icons/fish.svg">
-<link rel="apple-touch-icon" href="./icons/fish-180.png">
-<title>Pocket Fishing</title>
-<style>html,body{margin:0;height:100%;background:#fff;overflow:hidden;touch-action:none;font-family:monospace}
-canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated}
-#hud{position:fixed;top:72px;left:12px;right:12px;max-width:620px;margin:auto;padding:10px;text-align:center;font-size:clamp(14px,3.5vw,18px);color:#140c1c;background:#deeed6ed;border:2px solid #30346d;border-radius:4px;pointer-events:none}
-.controls{position:fixed;top:max(12px,env(safe-area-inset-top));right:12px;display:flex;gap:8px}
-button{min-height:44px;padding:8px 12px;border:2px solid #30346d;border-radius:4px;background:#deeed6;color:#140c1c;font:inherit;cursor:pointer;touch-action:manipulation}
-button:focus-visible,canvas:focus-visible{outline:3px solid #d27d2c;outline-offset:-3px}
-dialog{box-sizing:border-box;width:min(420px,calc(100vw - 24px));max-height:calc(100dvh - 32px);padding:20px;border:3px solid #30346d;border-radius:8px;background:#deeed6;color:#140c1c;overflow-y:auto;touch-action:pan-y pinch-zoom}
-dialog::backdrop{background:#140c1c99}
-.log-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
-h1{font-size:22px;margin:0}#catch-list{list-style:none;margin:16px 0;padding:0}
-#catch-list li{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #8595a1}
-.fish-swatch{width:30px;height:16px;border:2px solid #30346d;flex-shrink:0;image-rendering:pixelated}
-.fish-count{margin-left:auto;white-space:nowrap}#catch-summary{line-height:1.6;white-space:pre-line}
-.log-hint{color:#4e4a4e;font-size:13px;line-height:1.5}</style>
-</head><body><div id="hud" role="status">Очки: 0 — тапни, чтобы закинуть</div>
-<div class="controls"><button id="catch-log" type="button" aria-haspopup="dialog" aria-controls="collection">Улов</button><button id="mute" type="button" aria-pressed="false" aria-label="Выключить звук">Звук: вкл.</button></div>
-<div id="time-of-day" style="position:fixed;bottom:max(12px,env(safe-area-inset-bottom));left:12px;color:#30346d;background:#deeed6;padding:6px 10px;pointer-events:none">День</div>
-<dialog id="collection" aria-labelledby="collection-title">
-  <div class="log-heading"><h1 id="collection-title">Улов</h1><button id="close-log" type="button" aria-label="Закрыть улов" autofocus>Закрыть</button></div>
-  <p id="catch-summary"></p><ul id="catch-list"></ul>
-  <p class="log-hint">Рыбалка на паузе. Ночью редкие виды встречаются чаще.</p>
-</dialog>
-<script type="module" src="/src/main.js"></script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f5ed">
+  <meta name="description" content="Тихая рыбалка в уютной бухте: лодки, маяк и пять видов рыб для вашей коллекции.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="./icons/fish.svg">
+  <link rel="apple-touch-icon" href="./icons/fish-180.png">
+  <title>Тихая бухта · Pocket Fishing</title>
+</head>
+<body>
+  <canvas id="game" tabindex="0" role="button" aria-busy="true" aria-label="Рыбалка. Нажмите на воду для заброса и ещё раз при поклёвке. Пробел или Enter — заброс и подсечка. Перетаскивайте карту для обзора."></canvas>
+  <header class="topbar">
+    <div class="brand"><img src="./icons/fish.svg" alt="" width="40" height="40"><div><h1>Тихая бухта</h1><p>Маленькая пауза у воды</p></div></div>
+    <div class="top-actions">
+      <div class="score-card" aria-label="Очки"><strong id="score">0</strong><span>очков</span></div>
+      <button id="catch-log" class="primary-button" type="button" aria-haspopup="dialog" aria-controls="collection"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h14l-1 11H6L5 9Zm3 0V7a4 4 0 0 1 8 0v2M3 9h18"/></svg><span>Улов</span></button>
+      <button id="mute" type="button" aria-pressed="false" aria-label="Выключить звук"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m11 4-6 5H2v6h3l6 5V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></svg><span>Звук</span></button>
+    </div>
+  </header>
+  <div id="time-of-day" class="time-pill"><span class="time-dot" aria-hidden="true"></span><span id="time-label">Дневная рыбалка</span></div>
+  <div class="bottom-bar">
+    <div class="instructions"><span class="instruction-dot" aria-hidden="true"></span><span>Касание — забросить<br><small>Когда клюёт — коснитесь ещё раз</small></span></div>
+    <div id="hud" role="status" aria-live="polite">Открываем бухту…</div>
+    <div class="map-controls" aria-label="Масштаб карты"><button id="zoom-out" type="button" aria-label="Отдалить карту" title="Отдалить">−</button><button id="fit-map" type="button" aria-label="Показать всю карту" title="Вся карта"><span id="zoom-level">100%</span></button><button id="zoom-in" type="button" aria-label="Приблизить карту" title="Приблизить">+</button></div>
+  </div>
+  <div id="loading" class="loading-screen"><div class="loading-symbol" aria-hidden="true">⚓</div><h2 id="loading-title">Открываем бухту</h2><p id="loading-description">Готовим лодки и удочки…</p></div>
+  <dialog id="collection" aria-labelledby="collection-title">
+    <div class="log-heading"><div><p class="eyebrow">Ваша коллекция</p><h2 id="collection-title">Ваш улов</h2></div><button id="close-log" type="button" aria-label="Закрыть улов" autofocus>×</button></div>
+    <p id="catch-summary"></p><ul id="catch-list"></ul><p id="best-catch"></p><p class="log-hint">Рыбалка на паузе. Ночью редкие виды встречаются чаще.</p>
+  </dialog>
+  <noscript>Для рыбалки включите JavaScript в браузере.</noscript>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
