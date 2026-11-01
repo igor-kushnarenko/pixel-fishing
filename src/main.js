@@ -1,5 +1,16 @@
 // Pocket Fishing — Vite + Three.js. Style inspired by Pixel Plays (MIT, Amir Mushich): https://github.com/amirmushichge/pixel-plays
 import * as THREE from 'three';
+import { createAudio } from './audio.js';
+
+const audio = createAudio();
+document.addEventListener('pointerdown', audio.unlock, { once: true, capture: true });
+const muteButton = document.getElementById('mute');
+muteButton.disabled = !audio.supported;
+muteButton.addEventListener('click', () => {
+  const muted = audio.toggleMute();
+  muteButton.setAttribute('aria-pressed', String(muted));
+  muteButton.textContent = muted ? 'Звук: выкл.' : 'Звук: вкл.';
+});
 
 const FISH_TYPES = [
   { name: 'Карась', color: '#d2aa99', size: 0.8, rarity: 45, points: 10, biteWindow: 0.9 },
@@ -96,6 +107,7 @@ function tap(e) {
   else if (state === 'bite') {
     state = 'caught'; t = 0; biteMark.visible = false; lastCatch = activeFish; score += activeFish.points;
     fish.material.color.set(activeFish.color); fish.scale.setScalar(activeFish.size);
+    audio.catch();
     say(`поймал: ${activeFish.name}! +${activeFish.points} 🎣`);
   }
 }
@@ -108,8 +120,8 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1); t += dt;
   rod.getWorldPosition(tip); tip.z += 1.0; tip.y += 0.45;
   if (state === 'cast') { const k = Math.min(t / 0.6, 1); bob.position.lerpVectors(tip, target, k); bob.position.y += Math.sin(k * Math.PI) * 1.5;
-    if (k >= 1) { state = 'wait'; t = 0; biteAt = 1.5 + Math.random() * 4; } }
-  else if (state === 'wait') { bob.position.y = -0.15 + Math.sin(t * 3) * 0.03; if (t > biteAt) { activeFish = chooseFish(); state = 'bite'; t = 0; biteStartedAt = performance.now(); say('КЛЮЁТ! тапай!'); } }
+    if (k >= 1) { audio.splash(); state = 'wait'; t = 0; biteAt = 1.5 + Math.random() * 4; } }
+  else if (state === 'wait') { bob.position.y = -0.15 + Math.sin(t * 3) * 0.03; if (t > biteAt) { activeFish = chooseFish(); state = 'bite'; t = 0; biteStartedAt = performance.now(); audio.bite(); say('КЛЮЁТ! тапай!'); } }
   else if (state === 'bite') { bob.position.y = -0.3 + Math.sin(t * 30) * 0.1; if (performance.now() - biteStartedAt >= activeFish.biteWindow * 1000) miss(); }
   else if (state === 'caught') { fish.position.lerpVectors(target, tip, Math.min(t, 1)); fish.position.y += Math.sin(Math.min(t, 1) * Math.PI); fish.rotation.z = t * 10; bob.position.copy(fish.position);
     if (t > 1.2) { state = 'idle'; fish.position.y = -100; bob.position.y = -100; say('тапни, чтобы закинуть'); } }
