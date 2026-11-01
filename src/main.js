@@ -1,6 +1,23 @@
 // Pocket Fishing — Vite + Three.js. Style inspired by Pixel Plays (MIT, Amir Mushich): https://github.com/amirmushichge/pixel-plays
 import * as THREE from 'three';
 
+const FISH_TYPES = [
+  { name: 'Карась', color: '#d2aa99', size: 0.8, rarity: 45, points: 10 },
+  { name: 'Окунь', color: '#6daa2c', size: 1, rarity: 28, points: 20 },
+  { name: 'Форель', color: '#6dc2ca', size: 1.2, rarity: 16, points: 40 },
+  { name: 'Щука', color: '#346524', size: 1.5, rarity: 8, points: 80 },
+  { name: 'Золотая рыбка', color: '#dad45e', size: 0.9, rarity: 3, points: 200 }
+];
+
+function chooseFish() {
+  let roll = Math.random() * FISH_TYPES.reduce((sum, type) => sum + type.rarity, 0);
+  for (const type of FISH_TYPES) {
+    roll -= type.rarity;
+    if (roll < 0) return type;
+  }
+  return FISH_TYPES[FISH_TYPES.length - 1];
+}
+
 const W = 160, H = 120;
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(1);
@@ -58,15 +75,20 @@ addEventListener('resize', resize); resize();
 
 // game loop: idle -> cast -> wait -> bite -> (hook|miss)
 const hud = document.getElementById('hud');
-let state = 'idle', t = 0, biteAt = 0, count = 0, target = new THREE.Vector3();
-const say = s => hud.textContent = `Рыба: ${count} — ${s}`;
+let state = 'idle', t = 0, biteAt = 0, score = 0, activeFish = null, lastCatch = null, target = new THREE.Vector3();
+const say = s => hud.textContent = `Очки: ${score}${lastCatch ? ` · ${lastCatch.name}` : ''} — ${s}`;
 function tap(e) {
   e.preventDefault();
   if (state === 'idle') { state = 'cast'; t = 0; target.set(-4 + 2 + Math.random() * 3, -0.15, -1 + Math.random() * 4); say('ждём поклёвку...'); }
   else if (state === 'wait' || state === 'cast') { state = 'idle'; bob.position.y = -100; say('рано! тапни, чтобы закинуть'); }
-  else if (state === 'bite') { state = 'caught'; t = 0; count++; say('поймал! 🎣'); }
+  else if (state === 'bite') {
+    state = 'caught'; t = 0; lastCatch = activeFish; score += activeFish.points;
+    fish.material.color.set(activeFish.color); fish.scale.setScalar(activeFish.size);
+    say(`поймал: ${activeFish.name}! +${activeFish.points} 🎣`);
+  }
 }
 renderer.domElement.addEventListener('pointerdown', tap);
+say('тапни, чтобы закинуть');
 
 const clock = new THREE.Clock();
 const tip = new THREE.Vector3();
@@ -75,7 +97,7 @@ function frame() {
   rod.getWorldPosition(tip); tip.z += 1.0; tip.y += 0.45;
   if (state === 'cast') { const k = Math.min(t / 0.6, 1); bob.position.lerpVectors(tip, target, k); bob.position.y += Math.sin(k * Math.PI) * 1.5;
     if (k >= 1) { state = 'wait'; t = 0; biteAt = 1.5 + Math.random() * 4; } }
-  else if (state === 'wait') { bob.position.y = -0.15 + Math.sin(t * 3) * 0.03; if (t > biteAt) { state = 'bite'; t = 0; say('КЛЮЁТ! тапай!'); } }
+  else if (state === 'wait') { bob.position.y = -0.15 + Math.sin(t * 3) * 0.03; if (t > biteAt) { activeFish = chooseFish(); state = 'bite'; t = 0; say('КЛЮЁТ! тапай!'); } }
   else if (state === 'bite') { bob.position.y = -0.3 + Math.sin(t * 30) * 0.1; if (t > 0.9) { state = 'idle'; bob.position.y = -100; say('сорвалась. тапни, чтобы закинуть'); } }
   else if (state === 'caught') { fish.position.lerpVectors(target, tip, Math.min(t, 1)); fish.position.y += Math.sin(Math.min(t, 1) * Math.PI); fish.rotation.z = t * 10; bob.position.copy(fish.position);
     if (t > 1.2) { state = 'idle'; fish.position.y = -100; bob.position.y = -100; say('тапни, чтобы закинуть'); } }
