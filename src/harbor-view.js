@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MAP_WIDTH as W, MAP_HEIGHT as H, BOATS, WATER_POLYGONS, FOREGROUND_PIER, FISHERMAN, ROD_GRIP, ROD_TIP } from './harbor-map.js';
+import { MAP_WIDTH as W, MAP_HEIGHT as H, BOATS, WATER_POLYGONS, SHORE_PATHS, FOREGROUND_PIER, FISHERMAN, ROD_GRIP, ROD_TIP } from './harbor-map.js';
 
 const vertex = 'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
 const tint = `vec3 evening(vec3 c) {
@@ -13,15 +13,45 @@ void main(){vec4 c=texture2D(uMap,vUv);gl_FragColor=vec4(evening(c.rgb),mix(1.,t
 }`;
 const waterFragment = `uniform sampler2D uMap,uMask; uniform float uTime,uMotion,uDaylight; varying vec2 vUv;
 ${tint}
+float wet(vec3 c){
+  return smoothstep(.02,.12,c.g-c.r)*smoothstep(.015,.09,c.b-c.r);
+}
 void main(){
-  vec4 original=texture2D(uMap,vUv);float mask=texture2D(uMask,vUv).r;
-  float teal=smoothstep(.025,.14,original.g-original.r)*smoothstep(.015,.10,original.b-original.r);
-  float alpha=mask*teal;
+  vec2 texel=vec2(1./1448.,1./1086.);
+  vec2 p=vUv*vec2(1448.,1086.);
+  vec4 original=texture2D(uMap,vUv);vec2 mask=texture2D(uMask,vUv).rg;
+  // Include narrow foam/reflections surrounded by teal, while excluding timber and rock.
+  float neighbors=wet(texture2D(uMap,vUv+vec2(3.,0.)*texel).rgb)
+    +wet(texture2D(uMap,vUv-vec2(3.,0.)*texel).rgb)
+    +wet(texture2D(uMap,vUv+vec2(0.,3.)*texel).rgb)
+    +wet(texture2D(uMap,vUv-vec2(0.,3.)*texel).rgb);
+  float alpha=mask.r*max(wet(original.rgb),smoothstep(1.8,3.5,neighbors));
   if(alpha<.01) discard;
-  vec2 flow=vec2(sin(vUv.y*400.+uTime*.9),cos(vUv.x*300.-uTime*.7))*.00065*uMotion;
-  vec3 c=texture2D(uMap,vUv+flow*alpha).rgb;
-  float glint=pow(max(0.,sin(vUv.x*820.+vUv.y*610.+uTime*1.4)),18.);
-  c+=vec3(.045,.075,.07)*glint*uMotion;
+  float t=uTime;
+  vec2 flow=vec2(
+    sin(p.y*.075-t*1.45)*3.4+sin(p.x*.034+t*.8)*1.3,
+    cos(p.x*.061-t*1.1)*1.8+sin(p.y*.11+t*.75)*.7
+  )*texel*uMotion;
+  vec2 movingUv=vUv+flow*alpha;
+  vec3 displaced=texture2D(uMap,movingUv).rgb;
+  // A displaced sample cannot pull a dock or rock into the water.
+  float safe=texture2D(uMask,movingUv).r*wet(displaced);
+  vec3 c=mix(original.rgb,displaced,safe);
+  // Broken, travelling wave crests remain legible when the full map is fitted on screen.
+  float phase=p.y*.24+p.x*.022+sin(p.x*.032+t*.4)*1.4-t*1.9;
+  float crests=pow(max(0.,sin(phase)),14.);
+  float breaks=smoothstep(.18,.86,.5+.5*sin(p.x*.115+sin(p.y*.055)+t*.6));
+  float swell=sin(p.y*.061-p.x*.017-t*.95);
+  c*=1.+swell*.065*uMotion;
+  c=mix(c,vec3(.32,.72,.67),crests*breaks*.30*uMotion);
+  float sparkle=pow(max(0.,sin(p.x*.27+sin(p.y*.09)+t*.9)),20.)
+    *pow(max(0.,sin(p.y*.36-t*2.6)),14.);
+  c=mix(c,vec3(.78,.96,.86),sparkle*.38*uMotion);
+  // Green mask channel follows the actual shoreline, not the perimeter of a rectangle.
+  float shorePhase=mask.g*15.-t*2.2+sin(p.x*.055+p.y*.032)*.65;
+  float foam=pow(max(0.,sin(shorePhase)),9.)*smoothstep(.06,.35,mask.g);
+  float lace=.55+.45*sin(p.x*.2-p.y*.11+t*.7);
+  c=mix(c,vec3(.72,.94,.85),foam*lace*.48*uMotion);
   gl_FragColor=vec4(evening(c),alpha);
   #include <colorspace_fragment>
 }`;
@@ -37,6 +67,21 @@ function maskTexture(polygons) {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#fff';
     for (const polygon of polygons) {
       ctx.beginPath(); polygon.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fill();
+    }
+  });
+}
+function waterMaskTexture() {
+  return canvasTexture(W, H, ctx => {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    // R = water area, G = soft proximity to beach/breakwater.
+    ctx.fillStyle = '#f00';
+    for (const polygon of WATER_POLYGONS) {
+      ctx.beginPath(); polygon.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = '#00ff00';
+    ctx.lineWidth = 24; ctx.lineCap = ctx.lineJoin = 'round'; ctx.filter = 'blur(9px)';
+    for (const path of SHORE_PATHS) {
+      ctx.beginPath(); path.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke();
     }
   });
 }
@@ -64,7 +109,7 @@ export class HarborView {
     for (const texture of [map, atlas]) { texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy()); }
     this.atlas = atlas;
     this.dayMaterials = []; this.tintMaterials = [];
-    const waterMask = maskTexture(WATER_POLYGONS), pierMask = maskTexture([FOREGROUND_PIER]);
+    const waterMask = waterMaskTexture(), pierMask = maskTexture([FOREGROUND_PIER]);
     const material = (fragmentShader, mask, masked = 0) => {
       const result = new THREE.ShaderMaterial({
         vertexShader: vertex, fragmentShader, transparent: true, depthTest: false, depthWrite: false,
