@@ -2,11 +2,11 @@
 import * as THREE from 'three';
 
 const FISH_TYPES = [
-  { name: 'Карась', color: '#d2aa99', size: 0.8, rarity: 45, points: 10 },
-  { name: 'Окунь', color: '#6daa2c', size: 1, rarity: 28, points: 20 },
-  { name: 'Форель', color: '#6dc2ca', size: 1.2, rarity: 16, points: 40 },
-  { name: 'Щука', color: '#346524', size: 1.5, rarity: 8, points: 80 },
-  { name: 'Золотая рыбка', color: '#dad45e', size: 0.9, rarity: 3, points: 200 }
+  { name: 'Карась', color: '#d2aa99', size: 0.8, rarity: 45, points: 10, biteWindow: 0.9 },
+  { name: 'Окунь', color: '#6daa2c', size: 1, rarity: 28, points: 20, biteWindow: 0.75 },
+  { name: 'Форель', color: '#6dc2ca', size: 1.2, rarity: 16, points: 40, biteWindow: 0.6 },
+  { name: 'Щука', color: '#346524', size: 1.5, rarity: 8, points: 80, biteWindow: 0.5 },
+  { name: 'Золотая рыбка', color: '#dad45e', size: 0.9, rarity: 3, points: 200, biteWindow: 0.4 }
 ];
 
 function chooseFish() {
@@ -44,6 +44,13 @@ part(0.5, 0.6, 0.4, '#d04040', 0, 0.6, 0); part(0.4, 0.4, 0.4, '#f0c090', 0, 1.1
 part(0.5, 0.3, 0.3, '#303060', 0, 0.15, 0);
 const rod = part(0.06, 0.06, 2.2, '#6a4a2a', 0.2, 0.9, 1.0); rod.rotation.x = -0.4;
 const bob = box(0.25, 0.25, 0.25, '#ff3030', 0, -100, 0);
+const biteMark = new THREE.Group();
+const markMaterial = new THREE.MeshBasicMaterial({ color: '#dad45e' });
+for (const [height, y] of [[0.5, 0.3], [0.12, -0.12]]) {
+  const pixel = new THREE.Mesh(new THREE.BoxGeometry(0.15, height, 0.15), markMaterial);
+  pixel.position.y = y; biteMark.add(pixel);
+}
+biteMark.visible = false; scene.add(biteMark);
 const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
 const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: '#202020' })); scene.add(line);
 const fish = box(0.6, 0.3, 0.2, '#e08030', 0, -100, 0);
@@ -75,14 +82,19 @@ addEventListener('resize', resize); resize();
 
 // game loop: idle -> cast -> wait -> bite -> (hook|miss)
 const hud = document.getElementById('hud');
-let state = 'idle', t = 0, biteAt = 0, score = 0, activeFish = null, lastCatch = null, target = new THREE.Vector3();
+let state = 'idle', t = 0, biteAt = 0, biteStartedAt = 0, score = 0, activeFish = null, lastCatch = null, target = new THREE.Vector3();
 const say = s => hud.textContent = `Очки: ${score}${lastCatch ? ` · ${lastCatch.name}` : ''} — ${s}`;
+function miss() {
+  state = 'idle'; bob.position.y = -100; biteMark.visible = false;
+  say('сорвалась. тапни, чтобы закинуть');
+}
 function tap(e) {
   e.preventDefault();
+  if (state === 'bite' && performance.now() - biteStartedAt >= activeFish.biteWindow * 1000) { miss(); return; }
   if (state === 'idle') { state = 'cast'; t = 0; target.set(-4 + 2 + Math.random() * 3, -0.15, -1 + Math.random() * 4); say('ждём поклёвку...'); }
   else if (state === 'wait' || state === 'cast') { state = 'idle'; bob.position.y = -100; say('рано! тапни, чтобы закинуть'); }
   else if (state === 'bite') {
-    state = 'caught'; t = 0; lastCatch = activeFish; score += activeFish.points;
+    state = 'caught'; t = 0; biteMark.visible = false; lastCatch = activeFish; score += activeFish.points;
     fish.material.color.set(activeFish.color); fish.scale.setScalar(activeFish.size);
     say(`поймал: ${activeFish.name}! +${activeFish.points} 🎣`);
   }
@@ -97,10 +109,12 @@ function frame() {
   rod.getWorldPosition(tip); tip.z += 1.0; tip.y += 0.45;
   if (state === 'cast') { const k = Math.min(t / 0.6, 1); bob.position.lerpVectors(tip, target, k); bob.position.y += Math.sin(k * Math.PI) * 1.5;
     if (k >= 1) { state = 'wait'; t = 0; biteAt = 1.5 + Math.random() * 4; } }
-  else if (state === 'wait') { bob.position.y = -0.15 + Math.sin(t * 3) * 0.03; if (t > biteAt) { activeFish = chooseFish(); state = 'bite'; t = 0; say('КЛЮЁТ! тапай!'); } }
-  else if (state === 'bite') { bob.position.y = -0.3 + Math.sin(t * 30) * 0.1; if (t > 0.9) { state = 'idle'; bob.position.y = -100; say('сорвалась. тапни, чтобы закинуть'); } }
+  else if (state === 'wait') { bob.position.y = -0.15 + Math.sin(t * 3) * 0.03; if (t > biteAt) { activeFish = chooseFish(); state = 'bite'; t = 0; biteStartedAt = performance.now(); say('КЛЮЁТ! тапай!'); } }
+  else if (state === 'bite') { bob.position.y = -0.3 + Math.sin(t * 30) * 0.1; if (performance.now() - biteStartedAt >= activeFish.biteWindow * 1000) miss(); }
   else if (state === 'caught') { fish.position.lerpVectors(target, tip, Math.min(t, 1)); fish.position.y += Math.sin(Math.min(t, 1) * Math.PI); fish.rotation.z = t * 10; bob.position.copy(fish.position);
     if (t > 1.2) { state = 'idle'; fish.position.y = -100; bob.position.y = -100; say('тапни, чтобы закинуть'); } }
+  biteMark.visible = state === 'bite';
+  biteMark.position.copy(bob.position); biteMark.position.y += 0.9;
   line.visible = bob.position.y > -50;
   lineGeo.setFromPoints([tip, bob.position]);
   water.material.color.setHSL(0.6, 0.6, 0.5 + Math.sin(performance.now() / 800) * 0.03);
