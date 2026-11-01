@@ -6,8 +6,21 @@ canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated}
 #hud{position:fixed;top:72px;left:12px;right:12px;text-align:center;font-size:clamp(14px,3.5vw,18px);color:#222;pointer-events:none;text-shadow:1px 1px #fff}
 .controls{position:fixed;top:max(12px,env(safe-area-inset-top));right:12px;display:flex;gap:8px}
 button{min-height:44px;padding:8px 12px;border:2px solid #30346d;border-radius:4px;background:#deeed6;color:#140c1c;font:inherit;cursor:pointer;touch-action:manipulation}
-button:focus-visible{outline:3px solid #d27d2c;outline-offset:3px}</style>
+button:focus-visible,canvas:focus-visible{outline:3px solid #d27d2c;outline-offset:-3px}
+dialog{box-sizing:border-box;width:min(420px,calc(100vw - 24px));max-height:calc(100dvh - 32px);padding:20px;border:3px solid #30346d;border-radius:8px;background:#deeed6;color:#140c1c;overflow-y:auto;touch-action:pan-y}
+dialog::backdrop{background:#140c1c99}
+.log-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font-size:22px;margin:0}#catch-list{list-style:none;margin:16px 0;padding:0}
+#catch-list li{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #8595a1}
+.fish-swatch{width:30px;height:16px;border:2px solid #30346d;flex-shrink:0;image-rendering:pixelated}
+.fish-count{margin-left:auto;white-space:nowrap}#catch-summary{line-height:1.6;white-space:pre-line}
+.log-hint{color:#4e4a4e;font-size:13px;line-height:1.5}</style>
 </head><body><div id="hud" role="status">Очки: 0 — тапни, чтобы закинуть</div>
-<div class="controls"><button id="mute" type="button" aria-pressed="false" aria-label="Выключить звук">Звук: вкл.</button></div>
+<div class="controls"><button id="catch-log" type="button" aria-haspopup="dialog" aria-controls="collection">Улов</button><button id="mute" type="button" aria-pressed="false" aria-label="Выключить звук">Звук: вкл.</button></div>
 <div id="time-of-day" style="position:fixed;bottom:max(12px,env(safe-area-inset-bottom));left:12px;color:#30346d;background:#deeed6;padding:6px 10px;pointer-events:none">День</div>
+<dialog id="collection" aria-labelledby="collection-title">
+  <div class="log-heading"><h1 id="collection-title">Улов</h1><button id="close-log" type="button" aria-label="Закрыть улов" autofocus>Закрыть</button></div>
+  <p id="catch-summary"></p><ul id="catch-list"></ul>
+  <p class="log-hint">Рыбалка на паузе. Ночью редкие виды встречаются чаще.</p>
+</dialog>
 <script type="module" src="/src/main.js"></script></body></html>
