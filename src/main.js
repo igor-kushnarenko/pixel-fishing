@@ -1,6 +1,7 @@
 // Pocket Fishing — Vite + Three.js. Style inspired by Pixel Plays (MIT, Amir Mushich): https://github.com/amirmushichge/pixel-plays
 import * as THREE from 'three';
 import { createAudio } from './audio.js';
+import { loadProgress, saveProgress } from './progress.js';
 
 const audio = createAudio();
 document.addEventListener('pointerdown', audio.unlock, { once: true, capture: true });
@@ -113,8 +114,9 @@ addEventListener('resize', resize); resize();
 
 // game loop: idle -> cast -> wait -> bite -> (hook|miss)
 const hud = document.getElementById('hud');
-let state = 'idle', t = 0, biteAt = 0, biteStartedAt = 0, score = 0, activeFish = null, lastCatch = null, target = new THREE.Vector3();
-const say = s => hud.textContent = `Очки: ${score}${lastCatch ? ` · ${lastCatch.name}` : ''} — ${s}`;
+const progress = loadProgress(FISH_TYPES);
+let state = 'idle', t = 0, biteAt = 0, biteStartedAt = 0, activeFish = null, lastCatch = null, target = new THREE.Vector3();
+const say = s => hud.textContent = `Очки: ${progress.score}${lastCatch ? ` · ${lastCatch.name}` : ''} — ${s}`;
 function miss() {
   state = 'idle'; bob.position.y = -100; biteMark.visible = false;
   say('сорвалась. тапни, чтобы закинуть');
@@ -125,7 +127,12 @@ function tap(e) {
   if (state === 'idle') { state = 'cast'; t = 0; target.set(-4 + 2 + Math.random() * 3, -0.15, -1 + Math.random() * 4); say('ждём поклёвку...'); }
   else if (state === 'wait' || state === 'cast') { state = 'idle'; bob.position.y = -100; say('рано! тапни, чтобы закинуть'); }
   else if (state === 'bite') {
-    state = 'caught'; t = 0; biteMark.visible = false; lastCatch = activeFish; score += activeFish.points;
+    state = 'caught'; t = 0; biteMark.visible = false; lastCatch = activeFish;
+    progress.score += activeFish.points; progress.caught[activeFish.name]++;
+    if (!progress.bestCatch || activeFish.points > progress.bestCatch.points) {
+      progress.bestCatch = { name: activeFish.name, points: activeFish.points };
+    }
+    saveProgress(progress);
     fish.material.color.set(activeFish.color); fish.scale.setScalar(activeFish.size);
     audio.catch();
     say(`поймал: ${activeFish.name}! +${activeFish.points} 🎣`);
