@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAP_WIDTH as W, MAP_HEIGHT as H, BOATS, WATER_POLYGONS, SHORE_PATHS, FOREGROUND_PIER, FISHERMAN, ROD_GRIP, ROD_TIP } from './harbor-map.js';
+const ROD_TIP_DEFAULT = ROD_TIP, ROD_GRIP_DEFAULT = ROD_GRIP;
 
 const vertex = 'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
 const tint = `vec3 evening(vec3 c) {
@@ -88,7 +89,7 @@ function waterMaskTexture() {
 function position(object, x, y, z = object.position.z) { object.position.set(x, H - y, z); }
 
 export class HarborView {
-  zoom = 1; pan = new THREE.Vector2(); time = 0; motion = true;
+  zoom = 1; follow = false; focus = null; pan = new THREE.Vector2(); time = 0; motion = true;
   constructor(canvas) {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'low-power' });
@@ -123,7 +124,9 @@ export class HarborView {
     this.boats = BOATS.map(boat => ({ mesh: this.sprite(boat.crop, boat.width, boat.x, boat.y, 2), ...boat }));
     this.plane(W, H, material(backgroundFragment, pierMask, 1), W / 2, H / 2, 3);
     const fishermanCrop = [704, 598, 228, 390], fishermanHeight = 84;
-    this.sprite(fishermanCrop, fishermanHeight * fishermanCrop[2] / fishermanCrop[3], FISHERMAN.x, FISHERMAN.y - fishermanHeight / 2, 4);
+    this.heroHeight = fishermanHeight;
+    this.hero = this.sprite(fishermanCrop, fishermanHeight * fishermanCrop[2] / fishermanCrop[3], FISHERMAN.x, FISHERMAN.y - fishermanHeight / 2, 4);
+    this.hero.material.side = THREE.DoubleSide; // mirrored when walking left
     this.makeFishing(); this.makeLights(); this.makeSmoke();
   }
 
@@ -163,10 +166,21 @@ export class HarborView {
     this.fish = this.plane(32, 16, basic(fishTexture), 0, 0, 10); this.fish.visible = false;
     this.line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: '#3d514e', transparent: true, opacity: 0.8, depthTest: false }));
     this.line.renderOrder = 8; this.line.position.z = 8; this.scene.add(this.line);
-    const rod = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+    const rod = this.rod = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(ROD_GRIP.x, H - ROD_GRIP.y, 5), new THREE.Vector3(ROD_TIP.x, H - ROD_TIP.y, 5)
     ]), new THREE.LineBasicMaterial({ color: '#725139', depthTest: false }));
     rod.renderOrder = 5; this.scene.add(rod);
+    // Pixel-style "тап — забросить" bubble above the hero when standing at the water.
+    const hint = canvasTexture(240, 44, ctx => {
+      ctx.fillStyle = '#3e3727'; ctx.fillRect(0, 0, 240, 36); ctx.fillRect(110, 36, 20, 8);
+      ctx.fillStyle = '#fff3a2'; ctx.fillRect(3, 3, 234, 30);
+      ctx.fillStyle = '#3e3727'; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center'; ctx.fillText('тап — забросить', 120, 26);
+    });
+    hint.magFilter = THREE.NearestFilter;
+    this.hint = this.plane(90, 16.5, basic(hint), 0, 0, 11); this.hint.visible = false;
+    // Tap-to-move destination marker.
+    const dest = canvasTexture(16, 8, ctx => { ctx.strokeStyle = '#fff3a2'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(8, 4, 6, 3, 0, 0, Math.PI * 2); ctx.stroke(); });
+    this.dest = this.plane(16, 8, basic(dest), 0, 0, 3.5); this.dest.visible = false;
     this.ringMaterial = new THREE.ShaderMaterial({
       vertexShader: vertex, transparent: true, depthTest: false, depthWrite: false,
       uniforms: { uRemaining: { value: 1 } },
@@ -248,9 +262,23 @@ export class HarborView {
     if (this.zoom === 1) this.pan.set(0, 0);
     this.updateCamera();
   }
-  fit() { this.zoom = 1; this.pan.set(0, 0); this.updateCamera(); }
+  fit() { this.zoom = 1; this.pan.set(0, 0); this.follow = false; this.updateCamera(); }
 
-  render(game, dt, reducedMotion) {
+  /** Smoothly keep the hero centred; the camera centre snaps to whole screen pixels to avoid shimmer. */
+  followPlayer(player, dt, instant = false) {
+    if (!this.follow || this.zoom <= 1) return;
+    this.focus ??= new THREE.Vector2(player.x - W / 2, (H - player.y) - H / 2);
+    const goalX = player.x - W / 2, goalY = (H - player.y + this.heroHeight * 0.4) - H / 2;
+    const k = instant ? 1 : 1 - Math.exp(-dt * 5);
+    this.focus.x += (goalX - this.focus.x) * k; this.focus.y += (goalY - this.focus.y) * k;
+    const unit = 1 / (this.baseScale * this.zoom * this.renderer.getPixelRatio());
+    this.pan.set(Math.round(this.focus.x / unit) * unit, Math.round(this.focus.y / unit) * unit);
+    this.clampPan();
+  }
+  syncFocus() { this.focus = this.pan.clone(); }
+
+  render(game, dt, reducedMotion, player) {
+    if (player) this.drawPlayer(game, player, dt);
     this.motion = !reducedMotion; if (this.motion && !game.paused) this.time += dt;
     const t = this.time, daylight = game.daylight;
     for (const material of this.dayMaterials) material.uniforms.uDaylight.value = daylight;
@@ -273,7 +301,26 @@ export class HarborView {
     this.renderer.render(this.scene, this.camera);
   }
 
+  drawPlayer(game, player, dt) {
+    this.followPlayer(player, dt);
+    const bob = player.moving && this.motion ? Math.round(Math.abs(Math.sin(player.walkTime * 11)) * 3) : 0;
+    position(this.hero, Math.round(player.x), Math.round(player.y - this.heroHeight / 2 - bob));
+    this.hero.scale.x = player.flip;
+    this.hero.rotation.z = player.moving && this.motion ? Math.sin(player.walkTime * 11) * 0.05 : 0;
+    this.rodGrip = player.rodGrip; this.rodTip = player.rodTip;
+    this.rodGrip.y -= bob; this.rodTip.y -= bob;
+    this.rod.visible = !player.moving;
+    this.rod.geometry.setFromPoints([new THREE.Vector3(this.rodGrip.x, H - this.rodGrip.y, 5), new THREE.Vector3(this.rodTip.x, H - this.rodTip.y, 5)]);
+    const scale = Math.max(1, 0.55 / (this.baseScale * this.zoom));
+    this.hint.visible = game.state === 'idle' && player.canFish;
+    this.hint.scale.setScalar(scale);
+    position(this.hint, player.x, player.y - this.heroHeight - 12 - 8 * scale);
+    this.dest.visible = !!player.goal;
+    if (player.goal) { const end = player.path.at(-1) ?? player.target; position(this.dest, end.x, end.y); };
+  }
+
   drawFishing(game) {
+    const ROD_TIP = this.rodTip ?? ROD_TIP_DEFAULT, ROD_GRIP = this.rodGrip ?? ROD_GRIP_DEFAULT;
     const visible = game.state !== 'idle', target = game.target;
     const cueScale = Math.max(1, 0.55 / (this.baseScale * this.zoom));
     for (const cue of [this.bob, this.mark, this.ring]) cue.scale.setScalar(cueScale);
