@@ -6,8 +6,8 @@ export class FishingGame {
   paused = false; activeFish = null; lastCatch = null;
   target = null; biteAt = 0;
 
-  constructor({ progress, random = Math.random, onChange = () => {}, onSound = () => {}, onCatch = () => {} }) {
-    this.progress = progress; this.random = random;
+  constructor({ progress, random = Math.random, canCast = isCastable, onChange = () => {}, onSound = () => {}, onCatch = () => {} }) {
+    this.progress = progress; this.random = random; this.canCast = canCast;
     this.onChange = onChange; this.onSound = onSound; this.onCatch = onCatch;
   }
   get daylight() { return daylightAt(this.dayTime); }
@@ -24,7 +24,7 @@ export class FishingGame {
     if (this.paused) return;
     if (this.state === 'idle') {
       point ??= randomCastPoint(this.random);
-      if (!isCastable(point)) { this.message('Выберите свободную воду справа от рыбака'); return; }
+      if (!this.canCast(point)) { this.message('Выберите свободную воду справа от рыбака'); return; }
       this.target = { ...point }; this.enter('cast', 'Забрасываем…');
     } else if (this.state === 'cast' || this.state === 'wait') {
       this.enter('idle', 'Рановато! Дождитесь поклёвки');

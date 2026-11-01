@@ -51,3 +51,48 @@ export function randomCastPoint(random = Math.random) {
   }
   return { x: 785, y: 618 };
 }
+
+// ---- Walking (feature/walking) -------------------------------------------
+// Walkable ground traced over the illustration: the long pier, the upper quay with
+// the cafe square, and the beach below the stairs. Map pixels, Y down.
+export const WALK_POLYGONS = [
+  [[390,630],[825,740],[825,795],[390,690]],
+  [[205,560],[300,470],[450,445],[700,440],[1000,455],[1090,505],[1070,535],[1000,520],[880,510],[700,505],[560,520],[450,560],[410,625],[395,700],[300,705],[205,640]],
+  [[300,700],[395,690],[400,760],[360,800],[380,870],[300,860],[240,780]]
+];
+// Simple colliders: circles {x, y, r} and rectangles {x, y, w, h}.
+export const OBSTACLES = [
+  { x: 200, y: 440, w: 205, h: 125 },  // Seafood Cafe
+  { x: 270, y: 610, r: 38 },           // cafe tables
+  { x: 362, y: 569, r: 12 },           // menu board
+  { x: 450, y: 550, r: 10 },           // square lamp
+  { x: 431, y: 644, r: 13 },           // barrel by the pier
+  { x: 685, y: 727, r: 9 },            // pier lamp
+  { x: 238, y: 775, r: 36 }            // beached boat
+];
+export const PLAYER_RADIUS = 7;
+
+const inAny = (point, polygons) => polygons.some(polygon => pointInPolygon(point, polygon));
+export const isWater = point => inAny(point, WATER_POLYGONS) && !inAny(point, WALK_POLYGONS);
+
+function hitsObstacle(point, radius) {
+  return OBSTACLES.some(o => o.r
+    ? Math.hypot(point.x - o.x, point.y - o.y) < o.r + radius
+    : point.x > o.x - radius && point.x < o.x + o.w + radius && point.y > o.y - radius && point.y < o.y + o.h + radius);
+}
+
+export function isWalkable(point, radius = PLAYER_RADIUS) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return false;
+  // The feet and a small ring around them must all stand on walkable ground.
+  const ring = [[0, 0], [radius, 0], [-radius, 0], [0, radius * 0.6], [0, -radius * 0.6]];
+  return ring.every(([dx, dy]) => inAny({ x: point.x + dx, y: point.y + dy }, WALK_POLYGONS)) && !hitsObstacle(point, radius);
+}
+
+export function hitsBoat(point) {
+  return BOATS.some(boat => {
+    const height = boat.width * boat.crop[3] / boat.crop[2];
+    const hullY = boat.y + height * 0.32;
+    return ((point.x - boat.x) / (boat.width * 0.54)) ** 2 + ((point.y - hullY) / (height * 0.2)) ** 2 < 1;
+  });
+}
+export const isOpenWater = point => !!point && Number.isFinite(point.x) && Number.isFinite(point.y) && isWater(point) && !hitsBoat(point);
