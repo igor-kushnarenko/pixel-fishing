@@ -11,7 +11,7 @@
   <title>Тихая бухта · Pocket Fishing</title>
 </head>
 <body>
-  <canvas id="game" tabindex="0" role="button" aria-busy="true" aria-label="Рыбалка. Нажмите на воду для заброса и ещё раз при поклёвке. Пробел или Enter — заброс и подсечка. Перетаскивайте карту для обзора."></canvas>
+  <canvas id="game" tabindex="0" role="button" aria-busy="true" aria-label="Рыбалка. Нажмите на воду для заброса и ещё раз при поклёвке. Касание по земле — идти, WASD или стрелки — ходить. У воды касание, пробел или Enter — заброс и подсечка."></canvas>
   <header class="topbar">
     <div class="brand"><img src="./icons/fish.svg" alt="" width="40" height="40"><div><h1>Тихая бухта</h1><p>Маленькая пауза у воды</p></div></div>
     <div class="top-actions">
@@ -22,9 +22,9 @@
   </header>
   <div id="time-of-day" class="time-pill"><span class="time-dot" aria-hidden="true"></span><span id="time-label">Дневная рыбалка</span></div>
   <div class="bottom-bar">
-    <div class="instructions"><span class="instruction-dot" aria-hidden="true"></span><span>Касание — забросить<br><small>Когда клюёт — коснитесь ещё раз</small></span></div>
+    <div class="instructions"><span class="instruction-dot" aria-hidden="true"></span><span>Касание по земле — идти, у воды — забросить<br><small>WASD/стрелки — ходить · когда клюёт — коснитесь ещё раз</small></span></div>
     <div id="hud" role="status" aria-live="polite">Открываем бухту…</div>
-    <div class="map-controls" aria-label="Масштаб карты"><button id="zoom-out" type="button" aria-label="Отдалить карту" title="Отдалить">−</button><button id="fit-map" type="button" aria-label="Показать всю карту" title="Вся карта"><span id="zoom-level">100%</span></button><button id="zoom-in" type="button" aria-label="Приблизить карту" title="Приблизить">+</button></div>
+    <div class="map-controls" aria-label="Масштаб карты"><button id="zoom-out" type="button" aria-label="Отдалить карту" title="Отдалить">−</button><button id="fit-map" type="button" aria-label="Показать всю карту" title="Вся карта"><span id="zoom-level">100%</span></button><button id="follow" type="button" aria-label="Камера за рыбаком" title="За рыбаком">◎</button><button id="zoom-in" type="button" aria-label="Приблизить карту" title="Приблизить">+</button></div>
   </div>
   <div id="loading" class="loading-screen"><div class="loading-symbol" aria-hidden="true">⚓</div><h2 id="loading-title">Открываем бухту</h2><p id="loading-description">Готовим лодки и удочки…</p></div>
   <dialog id="collection" aria-labelledby="collection-title">
