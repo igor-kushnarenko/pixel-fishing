@@ -1,0 +1,16 @@
+{
+  "id": "./",
+  "name": "Pocket Fishing — Пиксельная рыбалка",
+  "short_name": "Рыбалка",
+  "description": "Поймай пять видов рыб и собери свою коллекцию.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#deeed6",
+  "icons": [
+    { "src": "icons/fish-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/fish-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

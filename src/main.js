@@ -96,7 +96,7 @@ function updateScenery(dt) {
   const tick = reducedMotion.matches ? -2 : Math.floor(sceneryTime * 8);
   if (tick === lastSwayTick) return;
   lastSwayTick = tick;
-  pixelStep.setFromMatrixColumn(cam.matrixWorld, 0).multiplyScalar(12 / H);
+  pixelStep.setFromMatrixColumn(cam.matrixWorld, 0).multiplyScalar((cam.top - cam.bottom) / H);
   reeds.forEach((reed, index) => {
     const pixels = reducedMotion.matches ? 0 : Math.round(Math.sin(tick * 0.55 + index));
     reed.position.copy(pixelStep).multiplyScalar(pixels);
@@ -133,7 +133,9 @@ const post = new THREE.ShaderMaterial({
     e=max(e,texture2D(tDepth,vUv-vec2(px.x,0)).r-d); e=max(e,texture2D(tDepth,vUv-vec2(0,px.y)).r-d);
     if(e>0.01) c*=0.35;
     vec3 best=pal[0]; float bd=1e9; for(int i=0;i<16;i++){ vec3 q=c-pal[i]; float k=dot(q,q); if(k<bd){bd=k;best=pal[i];} }
-    if(d>0.9999 && e<=0.01) best=vec3(1.); gl_FragColor=vec4(best,1.); }`,
+    if(d>0.9999 && e<=0.01) best=vec3(1.); gl_FragColor=vec4(best,1.);
+    #include <colorspace_fragment>
+  }`,
   depthTest: false, depthWrite: false
 });
 const postScene = new THREE.Scene(); postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), post));
@@ -141,7 +143,9 @@ const postCam = new THREE.Camera();
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
-  const a = innerWidth / innerHeight, h = 6; cam.left = -h * a; cam.right = h * a; cam.top = h; cam.bottom = -h; cam.updateProjectionMatrix();
+  const a = innerWidth / innerHeight, h = Math.max(6, 4.2 / a);
+  cam.position.set(8, 10, 10); cam.lookAt(-2, 0, 0);
+  cam.left = -h * a; cam.right = h * a; cam.top = h; cam.bottom = -h; cam.updateProjectionMatrix();
   rt.setSize(Math.round(H * a), H); post.uniforms.px.value.set(1 / Math.round(H * a), 1 / H);
 }
 addEventListener('resize', resize); resize();
@@ -179,6 +183,7 @@ function miss() {
 function tap(e) {
   e.preventDefault();
   if (collection.open) return;
+  audio.unlock();
   if (state === 'bite' && performance.now() - biteStartedAt >= activeFish.biteWindow * 1000) { miss(); return; }
   if (state === 'idle') { state = 'cast'; t = 0; target.set(-4 + 2 + Math.random() * 3, -0.15, -1 + Math.random() * 4); say('ждём поклёвку...'); }
   else if (state === 'wait' || state === 'cast') { state = 'idle'; bob.position.y = -100; say('рано! тапни, чтобы закинуть'); }
